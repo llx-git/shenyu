@@ -32,13 +32,14 @@ import org.apache.shenyu.plugin.api.result.ShenyuResultWrap;
 import org.apache.shenyu.plugin.api.utils.WebFluxResultUtils;
 import org.apache.shenyu.plugin.base.AbstractShenyuPlugin;
 import org.apache.shenyu.plugin.base.utils.CacheKeyUtils;
-import org.apache.shenyu.plugin.base.utils.FallbackUtils;
 import org.apache.shenyu.plugin.springcloud.cache.SpringCloudRuleHandleCache;
 import org.apache.shenyu.plugin.springcloud.cache.SpringCloudSelectorHandleCache;
+import org.apache.shenyu.plugin.springcloud.loadbalance.LoadBalanceKey;
+import org.apache.shenyu.plugin.springcloud.loadbalance.LoadBalanceKeyHolder;
 import org.springframework.cloud.client.ServiceInstance;
 import org.springframework.cloud.client.loadbalancer.LoadBalancerClient;
-import org.springframework.http.HttpMethod;
 import org.springframework.web.server.ServerWebExchange;
+
 import reactor.core.publisher.Mono;
 
 import java.net.URI;
@@ -61,27 +62,38 @@ public class SpringCloudPlugin extends AbstractShenyuPlugin {
     }
 
     @Override
-    protected Mono<Void> doExecute(final ServerWebExchange exchange, final ShenyuPluginChain chain, final SelectorData selector, final RuleData rule) {
+    protected Mono<Void> doExecute(final ServerWebExchange exchange, final ShenyuPluginChain chain, final SelectorData selector,
+                                   final RuleData rule) {
         if (Objects.isNull(rule)) {
             return Mono.empty();
         }
         final ShenyuContext shenyuContext = exchange.getAttribute(Constants.CONTEXT);
         assert shenyuContext != null;
+        final SpringCloudSelectorHandle springCloudSelectorHandle = SpringCloudSelectorHandleCache.getInstance().obtainHandle(selector.getId());
         final SpringCloudRuleHandle ruleHandle = SpringCloudRuleHandleCache.getInstance().obtainHandle(CacheKeyUtils.INST.getKey(rule));
-        final SpringCloudSelectorHandle selectorHandle = SpringCloudSelectorHandleCache.getInstance().obtainHandle(selector.getId());
-        if (StringUtils.isBlank(selectorHandle.getServiceId()) || StringUtils.isBlank(ruleHandle.getPath())) {
-            Object error = ShenyuResultWrap.error(ShenyuResultEnum.CANNOT_CONFIG_SPRINGCLOUD_SERVICEID.getCode(), ShenyuResultEnum.CANNOT_CONFIG_SPRINGCLOUD_SERVICEID.getMsg(), null);
+        String serviceId = springCloudSelectorHandle.getServiceId();
+        if (StringUtils.isBlank(serviceId) || StringUtils.isBlank(ruleHandle.getPath())) {
+            Object error = ShenyuResultWrap.error(ShenyuResultEnum.CANNOT_CONFIG_SPRINGCLOUD_SERVICEID.getCode(),
+                    ShenyuResultEnum.CANNOT_CONFIG_SPRINGCLOUD_SERVICEID.getMsg(), null);
             return WebFluxResultUtils.result(exchange, error);
         }
-
-        final ServiceInstance serviceInstance = loadBalancer.choose(selectorHandle.getServiceId());
+        String ip = Objects.requireNonNull(exchange.getRequest().getRemoteAddress()).getAddress().getHostAddress();
+        LoadBalanceKey loadBalanceKey = new LoadBalanceKey(ip, selector.getId(), ruleHandle.getLoadBalance());
+        ServiceInstance serviceInstance = null;
+        try {
+            LoadBalanceKeyHolder.setLoadBalanceKey(loadBalanceKey);
+            serviceInstance = loadBalancer.choose(serviceId);
+        } finally {
+            LoadBalanceKeyHolder.resetLoadBalanceKey();
+        }
         if (Objects.isNull(serviceInstance)) {
-            Object error = ShenyuResultWrap.error(ShenyuResultEnum.SPRINGCLOUD_SERVICEID_IS_ERROR.getCode(), ShenyuResultEnum.SPRINGCLOUD_SERVICEID_IS_ERROR.getMsg(), null);
+            Object error = ShenyuResultWrap
+                    .error(ShenyuResultEnum.SPRINGCLOUD_SERVICEID_IS_ERROR.getCode(), ShenyuResultEnum.SPRINGCLOUD_SERVICEID_IS_ERROR.getMsg(), null);
             return WebFluxResultUtils.result(exchange, error);
         }
         final URI uri = loadBalancer.reconstructURI(serviceInstance, URI.create(shenyuContext.getRealUrl()));
 
-        String realURL = buildRealURL(uri.toASCIIString(), shenyuContext.getHttpMethod(), exchange.getRequest().getURI().getQuery());
+        String realURL = buildRealURL(uri, exchange, exchange.getRequest().getURI().getQuery());
 
         exchange.getAttributes().put(Constants.HTTP_URL, realURL);
         //set time out.
@@ -106,23 +118,28 @@ public class SpringCloudPlugin extends AbstractShenyuPlugin {
      * @return default false.
      */
     @Override
-    public Boolean skip(final ServerWebExchange exchange) {
+    public boolean skip(final ServerWebExchange exchange) {
         final ShenyuContext body = exchange.getAttribute(Constants.CONTEXT);
         return !Objects.equals(Objects.requireNonNull(body).getRpcType(), RpcTypeEnum.SPRING_CLOUD.getName());
     }
 
     @Override
-    protected Mono<Void> handleSelectorIsNull(final String pluginName, final ServerWebExchange exchange, final ShenyuPluginChain chain) {
-        return FallbackUtils.getNoSelectorResult(pluginName, exchange);
+    protected Mono<Void> handleSelectorIfNull(final String pluginName, final ServerWebExchange exchange, final ShenyuPluginChain chain) {
+        return WebFluxResultUtils.noSelectorResult(pluginName, exchange);
     }
 
     @Override
-    protected Mono<Void> handleRuleIsNull(final String pluginName, final ServerWebExchange exchange, final ShenyuPluginChain chain) {
-        return FallbackUtils.getNoRuleResult(pluginName, exchange);
+    protected Mono<Void> handleRuleIfNull(final String pluginName, final ServerWebExchange exchange, final ShenyuPluginChain chain) {
+        return WebFluxResultUtils.noRuleResult(pluginName, exchange);
     }
 
-    private String buildRealURL(final String url, final String httpMethod, final String query) {
-        if (httpMethod.equals(HttpMethod.GET.name()) && StringUtils.isNotBlank(query)) {
+    private String buildRealURL(final URI uri, final ServerWebExchange exchange, final String query) {
+        String url = uri.toASCIIString();
+        final String rewriteURI = (String) exchange.getAttributes().get(Constants.REWRITE_URI);
+        if (StringUtils.isNotBlank(rewriteURI)) {
+            url = url.replace(uri.getPath(), rewriteURI);
+        }
+        if (StringUtils.isNotBlank(query)) {
             return url + "?" + query;
         }
         return url;

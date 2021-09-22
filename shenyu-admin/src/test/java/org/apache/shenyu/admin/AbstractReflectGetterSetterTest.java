@@ -17,7 +17,6 @@
 
 package org.apache.shenyu.admin;
 
-import lombok.SneakyThrows;
 import org.junit.Test;
 
 import java.beans.IntrospectionException;
@@ -112,8 +111,9 @@ public abstract class AbstractReflectGetterSetterTest {
                         return;
                     }
                     try {
-                        //get the get and set methods of the field by PropertyDescriptor
-                        PropertyDescriptor property = new PropertyDescriptor(f.getName(), clazz);
+                        // get the get and set methods of the field by PropertyDescriptor
+                        // (String) f.getName() for java11 (can not find com.sun.beans.introspect.PropertyInfo class)
+                        PropertyDescriptor property = new PropertyDescriptor((String) f.getName(), clazz);
                         Method getter = property.getReadMethod();
                         Method setter = property.getWriteMethod();
 
@@ -124,14 +124,13 @@ public abstract class AbstractReflectGetterSetterTest {
                         assertEquals(setValue, getValue,
                                 property.getDisplayName() + " getter / setter do not produce the same result."
                         );
-                    } catch (IntrospectionException | IllegalAccessException | InvocationTargetException e) {
+                    } catch (IntrospectionException | IllegalAccessException | InvocationTargetException | InstantiationException e) {
                         throw new RuntimeException("", e);
                     }
                 });
     }
 
-    @SneakyThrows
-    private Object defaultValue(final Class<?> clazz) {
+    private Object defaultValue(final Class<?> clazz) throws IllegalAccessException, InstantiationException {
         final Object obj = DEFAULT_MAPPERS.get(clazz);
         if (obj != null) {
             return obj;

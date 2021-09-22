@@ -17,14 +17,9 @@
 
 package org.apache.shenyu.plugin.api.result;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-
 /**
  * The enum shenyu result enum.
  */
-@Getter
-@RequiredArgsConstructor
 public enum ShenyuResultEnum {
 
     /**
@@ -41,6 +36,11 @@ public enum ShenyuResultEnum {
      * Sign is not pass shenyu result enum.
      */
     SIGN_IS_NOT_PASS(401, "Sign is not pass shenyu!"),
+
+    /**
+     * Authorization is incorrect.
+     */
+    ERROR_TOKEN(401, "Illegal authorization"),
 
     /**
      * Payload too large shenyu result enum.
@@ -116,7 +116,7 @@ public enum ShenyuResultEnum {
     /**
      * Rule not find shenyu result enum.
      */
-    RULE_NOT_FIND(-102, "Rule not found!"),
+    RULE_NOT_FOUND(-102, "Rule not found!"),
 
     /**
      * Service result error shenyu result enum.
@@ -129,9 +129,9 @@ public enum ShenyuResultEnum {
     SERVICE_TIMEOUT(-104, "Service call timeout!"),
 
     /**
-     * Sing time is timeout shenyu result enum.
+     * Sign time is timeout shenyu result enum.
      */
-    SING_TIME_IS_TIMEOUT(-105, "The signature timestamp has exceeded %s minutes!"),
+    SIGN_TIME_IS_TIMEOUT(-105, "The signature timestamp has exceeded %s minutes!"),
 
     /**
      * Cannot find url shenyu result enum.
@@ -141,10 +141,10 @@ public enum ShenyuResultEnum {
     /**
      * Cannot find selector shenyu result enum.
      */
-    CANNOT_FIND_SELECTOR(-107, "Can not find selector, please check your configuration!"),
+    SELECTOR_NOT_FOUND(-107, "Can not find selector, please check your configuration!"),
 
     /**
-     * The Cannot config springcloud serviceid.
+     * Can not config springcloud serviceid.
      */
     CANNOT_CONFIG_SPRINGCLOUD_SERVICEID(-108, "You are not configured or do not match springcloud serviceId!"),
 
@@ -164,6 +164,31 @@ public enum ShenyuResultEnum {
     CONTEXT_PATH_ERROR(-111, "The context path illegal, please check the context path mapping plugin!"),
 
     /**
+     * SecretKey must be configured.
+     */
+    SECRET_KEY_MUST_BE_CONFIGURED(-112, "SecretKey must be configured"),
+
+    /**
+     * Response error.
+     */
+    RESPONSE_ERROR(-113, "Response error, please check your configuration!"),
+
+    /**
+     * Cryptor request field error.
+     */
+    CRYPTOR_REQUEST_ERROR_CONFIGURATION(-114, "Please check Cryptor request plugin's "),
+
+    /**
+     * Cryptor response field error.
+     */
+    CRYPTOR_RESPONSE_ERROR_CONFIGURATION(-116, "Please check Cryptor response plugin's "),
+
+    /**
+     * Decryption error.
+     */
+    DECRYPTION_ERROR(-117, "Decryption failed, please check the parameters or key, or the data length is too long"),
+
+    /**
      * Request Header Fields Too Large.
      */
     REQUEST_HEADER_TOO_LARGE(431, "Request Header Fields Too Large"),
@@ -173,7 +198,34 @@ public enum ShenyuResultEnum {
      */
     REQUEST_ENTITY_TOO_LARGE(413, "Request Entity Too Large");
 
+    /**
+     * the code.
+     */
     private final int code;
 
+    /**
+     * the msg.
+     */
     private final String msg;
+
+    ShenyuResultEnum(final int code, final String msg) {
+        this.code = code;
+        this.msg = msg;
+    }
+
+    /**
+     * get code.
+     * @return code
+     */
+    public int getCode() {
+        return code;
+    }
+
+    /**
+     * get msg.
+     * @return msg
+     */
+    public String getMsg() {
+        return msg;
+    }
 }

@@ -22,18 +22,16 @@ import org.apache.dubbo.config.ReferenceConfig;
 import org.apache.shenyu.common.dto.MetaData;
 import org.apache.shenyu.common.enums.RpcTypeEnum;
 import org.apache.shenyu.plugin.apache.dubbo.cache.ApplicationConfigCache;
-import org.apache.shenyu.plugin.apache.dubbo.cache.DubboProviderVersionCache;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.MockedStatic;
 import org.mockito.junit.MockitoJUnitRunner;
 
 import java.lang.reflect.Field;
 
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doNothing;
 
 /**
  * The Test Case For ApacheDubboMetaDataSubscriber.
@@ -77,16 +75,9 @@ public final class ApacheDubboMetaDataSubscriberTest {
                 .rpcType(RpcTypeEnum.DUBBO.getName())
                 .rpcExt("{\"group\":\"Group\",\"version\":\"2.7.5\",\"loadbalance\":\"Balance\",\"url\":\"http://192.168.55.113/dubbo\"}")
                 .parameterTypes("parameterTypes").build();
-        try {
-            apacheDubboMetaDataSubscriber.onSubscribe(metaData);
-        } catch (IllegalStateException ex) {
-            System.err.println("onSubscribe Error");
-        }
-        try (MockedStatic<DubboProviderVersionCache> dubboProviderVersionCacheMockedStatic = mockStatic(DubboProviderVersionCache.class)) {
-            DubboProviderVersionCache dubboProviderVersionCache = mock(DubboProviderVersionCache.class);
-            dubboProviderVersionCacheMockedStatic.when(() -> DubboProviderVersionCache.getInstance()).thenReturn(dubboProviderVersionCache);
-
-            apacheDubboMetaDataSubscriber.unSubscribe(metaData);
-        }
+        ApacheDubboMetaDataSubscriber apacheDubboMetaDataSubscriberMock = mock(ApacheDubboMetaDataSubscriber.class);
+        doNothing().when(apacheDubboMetaDataSubscriberMock).onSubscribe(metaData);
+        apacheDubboMetaDataSubscriberMock.onSubscribe(metaData);
+        apacheDubboMetaDataSubscriber.unSubscribe(metaData);
     }
 }

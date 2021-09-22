@@ -17,24 +17,21 @@
 
 package org.apache.shenyu.plugin.apache.dubbo.proxy;
 
-import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
-import org.apache.dubbo.common.Version;
 import org.apache.dubbo.common.constants.CommonConstants;
 import org.apache.dubbo.config.ReferenceConfig;
 import org.apache.dubbo.rpc.RpcContext;
 import org.apache.dubbo.rpc.service.GenericException;
 import org.apache.dubbo.rpc.service.GenericService;
-import org.apache.shenyu.common.exception.ShenyuException;
-import org.apache.shenyu.plugin.apache.dubbo.cache.ApplicationConfigCache;
 import org.apache.shenyu.common.constant.Constants;
 import org.apache.shenyu.common.dto.MetaData;
 import org.apache.shenyu.common.enums.ResultEnum;
+import org.apache.shenyu.common.exception.ShenyuException;
 import org.apache.shenyu.common.utils.ParamCheckUtils;
-import org.apache.shenyu.plugin.apache.dubbo.cache.DubboProviderVersionCache;
-import org.apache.shenyu.plugin.api.param.BodyParamResolveService;
+import org.apache.shenyu.plugin.apache.dubbo.cache.ApplicationConfigCache;
+import org.apache.shenyu.plugin.dubbo.common.param.DubboParamResolveService;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -44,18 +41,17 @@ import java.util.concurrent.CompletableFuture;
 /**
  * dubbo proxy service is  use GenericService.
  */
-@Slf4j
 public class ApacheDubboProxyService {
 
-    private final BodyParamResolveService bodyParamResolveService;
+    private final DubboParamResolveService dubboParamResolveService;
 
     /**
      * Instantiates a new Dubbo proxy service.
      *
-     * @param bodyParamResolveService the generic param resolve service
+     * @param dubboParamResolveService the generic param resolve service
      */
-    public ApacheDubboProxyService(final BodyParamResolveService bodyParamResolveService) {
-        this.bodyParamResolveService = bodyParamResolveService;
+    public ApacheDubboProxyService(final DubboParamResolveService dubboParamResolveService) {
+        this.dubboParamResolveService = dubboParamResolveService;
     }
 
     /**
@@ -76,7 +72,6 @@ public class ApacheDubboProxyService {
         ReferenceConfig<GenericService> reference = ApplicationConfigCache.getInstance().get(metaData.getPath());
         if (Objects.isNull(reference) || StringUtils.isEmpty(reference.getInterface())) {
             ApplicationConfigCache.getInstance().invalidate(metaData.getPath());
-            DubboProviderVersionCache.getInstance().invalidate(metaData.getPath());
             reference = ApplicationConfigCache.getInstance().initRef(metaData);
         }
         GenericService genericService = reference.get();
@@ -84,43 +79,25 @@ public class ApacheDubboProxyService {
         if (StringUtils.isBlank(metaData.getParameterTypes()) || ParamCheckUtils.dubboBodyIsEmpty(body)) {
             pair = new ImmutablePair<>(new String[]{}, new Object[]{});
         } else {
-            pair = bodyParamResolveService.buildParameter(body, metaData.getParameterTypes());
+            pair = dubboParamResolveService.buildParameter(body, metaData.getParameterTypes());
         }
-        CompletableFuture<Object> future;
-        if (isProviderSupportAsync(metaData.getPath())) {
-            future = genericService.$invokeAsync(metaData.getMethodName(), pair.getLeft(), pair.getRight());
-        } else {
-            Object data = genericService.$invoke(metaData.getMethodName(), pair.getLeft(), pair.getRight());
-            if (data instanceof CompletableFuture) {
-                future = (CompletableFuture<Object>) data;
-            } else {
-                future = CompletableFuture.completedFuture(data);
-            }
-        }
-        return Mono.fromFuture(future.thenApply(ret -> {
+        return Mono.fromFuture(invokeAsync(genericService, metaData.getMethodName(), pair.getLeft(), pair.getRight()).thenApply(ret -> {
             if (Objects.isNull(ret)) {
                 ret = Constants.DUBBO_RPC_RESULT_EMPTY;
             }
-            exchange.getAttributes().put(Constants.DUBBO_RPC_RESULT, ret);
+            exchange.getAttributes().put(Constants.RPC_RESULT, ret);
             exchange.getAttributes().put(Constants.CLIENT_RESPONSE_RESULT_TYPE, ResultEnum.SUCCESS.getName());
             return ret;
         })).onErrorMap(exception -> exception instanceof GenericException ? new ShenyuException(((GenericException) exception).getExceptionMessage()) : new ShenyuException(exception));
     }
 
-    private boolean isProviderSupportAsync(final String path) {
-        boolean support = false;
-        try {
-            String providerVersion = DubboProviderVersionCache.getInstance().get(path);
-            int sdkVersion = Version.getIntVersion(providerVersion);
-            //dubbo sdk only supports $invokeAsync after version 2.7.3
-            if (sdkVersion >= Constants.DUBBO_SUPPORT_ASYNC_VERSION) {
-                support = true;
-            }
-        } catch (Exception e) {
-            if (log.isDebugEnabled()) {
-                log.debug("check dubbo provider version ex:{}", e.getMessage());
-            }
+    private CompletableFuture<Object> invokeAsync(final GenericService genericService, final String method, final String[] parameterTypes, final Object[] args) throws GenericException {
+        //Compatible with asynchronous calls of lower Dubbo versions
+        genericService.$invoke(method, parameterTypes, args);
+        Object resultFromFuture = RpcContext.getContext().getFuture();
+        if (resultFromFuture instanceof CompletableFuture) {
+            return (CompletableFuture<Object>) resultFromFuture;
         }
-        return support;
+        return CompletableFuture.completedFuture(resultFromFuture);
     }
 }

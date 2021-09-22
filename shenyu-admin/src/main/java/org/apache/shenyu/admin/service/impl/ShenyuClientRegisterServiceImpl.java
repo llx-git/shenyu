@@ -18,13 +18,11 @@
 package org.apache.shenyu.admin.service.impl;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.shenyu.admin.listener.DataChangedEvent;
 import org.apache.shenyu.admin.mapper.MetaDataMapper;
 import org.apache.shenyu.admin.mapper.PluginMapper;
 import org.apache.shenyu.admin.mapper.RuleMapper;
 import org.apache.shenyu.admin.mapper.SelectorMapper;
-import org.apache.shenyu.admin.service.RuleService;
-import org.apache.shenyu.admin.service.ShenyuClientRegisterService;
-import org.apache.shenyu.admin.utils.ShenyuResultMessage;
 import org.apache.shenyu.admin.model.dto.RuleConditionDTO;
 import org.apache.shenyu.admin.model.dto.RuleDTO;
 import org.apache.shenyu.admin.model.dto.SelectorConditionDTO;
@@ -33,9 +31,11 @@ import org.apache.shenyu.admin.model.entity.MetaDataDO;
 import org.apache.shenyu.admin.model.entity.PluginDO;
 import org.apache.shenyu.admin.model.entity.RuleDO;
 import org.apache.shenyu.admin.model.entity.SelectorDO;
-import org.apache.shenyu.admin.listener.DataChangedEvent;
+import org.apache.shenyu.admin.service.RuleService;
 import org.apache.shenyu.admin.service.SelectorService;
+import org.apache.shenyu.admin.service.ShenyuClientRegisterService;
 import org.apache.shenyu.admin.transfer.MetaDataTransfer;
+import org.apache.shenyu.admin.utils.ShenyuResultMessage;
 import org.apache.shenyu.common.dto.SelectorData;
 import org.apache.shenyu.common.dto.convert.DivideUpstream;
 import org.apache.shenyu.common.dto.convert.rule.RuleHandle;
@@ -52,7 +52,6 @@ import org.apache.shenyu.common.enums.SelectorTypeEnum;
 import org.apache.shenyu.common.utils.GsonUtils;
 import org.apache.shenyu.common.utils.UUIDUtils;
 import org.apache.shenyu.register.common.dto.MetaDataRegisterDTO;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,9 +63,9 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * The type shenyu client register service.
+ * Implementation of the {@link org.apache.shenyu.admin.service.ShenyuClientRegisterService}.
  */
-@Service("shenyuClientRegisterService")
+@Service
 public class ShenyuClientRegisterServiceImpl implements ShenyuClientRegisterService {
 
     private static final String CONTEXT_PATH_NAME_PREFIX = "/context-path";
@@ -87,19 +86,6 @@ public class ShenyuClientRegisterServiceImpl implements ShenyuClientRegisterServ
 
     private final PluginMapper pluginMapper;
 
-    /**
-     * Instantiates a new Meta data service.
-     *
-     * @param metaDataMapper       the meta data mapper
-     * @param eventPublisher       the event publisher
-     * @param selectorService      the selector service
-     * @param ruleService          the rule service
-     * @param ruleMapper           the rule mapper
-     * @param upstreamCheckService the upstream check service
-     * @param selectorMapper       the selector mapper
-     * @param pluginMapper         the plugin mapper
-     */
-    @Autowired(required = false)
     public ShenyuClientRegisterServiceImpl(final MetaDataMapper metaDataMapper,
                                            final ApplicationEventPublisher eventPublisher,
                                            final SelectorService selectorService,
@@ -119,7 +105,7 @@ public class ShenyuClientRegisterServiceImpl implements ShenyuClientRegisterServ
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public synchronized String registerSpringMvc(final MetaDataRegisterDTO dto) {
         if (dto.isRegisterMetaData()) {
             MetaDataDO exist = metaDataMapper.findByPath(dto.getPath());
@@ -138,7 +124,7 @@ public class ShenyuClientRegisterServiceImpl implements ShenyuClientRegisterServ
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public synchronized String registerSpringCloud(final MetaDataRegisterDTO dto) {
         MetaDataDO metaDataDO = metaDataMapper.findByPath(dto.getContextPath() + "/**");
         if (Objects.isNull(metaDataDO)) {
@@ -167,7 +153,7 @@ public class ShenyuClientRegisterServiceImpl implements ShenyuClientRegisterServ
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public synchronized String registerDubbo(final MetaDataRegisterDTO dto) {
         MetaDataDO exist = metaDataMapper.findByPath(dto.getPath());
         saveOrUpdateMetaData(exist, dto);
@@ -341,7 +327,7 @@ public class ShenyuClientRegisterServiceImpl implements ShenyuClientRegisterServ
         }
         // publish MetaData's event
         eventPublisher.publishEvent(new DataChangedEvent(ConfigGroupEnum.META_DATA, eventType,
-                Collections.singletonList(MetaDataTransfer.INSTANCE.mapRegisterDTOToEntity(metaDataDTO))));
+                Collections.singletonList(MetaDataTransfer.INSTANCE.mapToData(metaDataDO))));
     }
 
     private String handlerSelector(final MetaDataRegisterDTO dto) {
@@ -360,7 +346,9 @@ public class ShenyuClientRegisterServiceImpl implements ShenyuClientRegisterServ
             String handle = selectorDO.getHandle();
             String handleAdd;
             DivideUpstream addDivideUpstream = buildDivideUpstream(uri);
-            SelectorData selectorData = selectorService.buildByName(contextPath);
+            final SelectorData selectorData = selectorService.buildByName(contextPath);
+            // fetch UPSTREAM_MAP data from db
+            upstreamCheckService.fetchUpstreamData();
             if (StringUtils.isBlank(handle)) {
                 handleAdd = GsonUtils.getInstance().toJson(Collections.singletonList(addDivideUpstream));
             } else {
@@ -513,7 +501,7 @@ public class ShenyuClientRegisterServiceImpl implements ShenyuClientRegisterServ
             ruleConditionDTO.setOperator(OperatorEnum.EQ.getAlias());
         }
         ruleDTO.setRuleConditions(Collections.singletonList(ruleConditionDTO));
-        ruleService.register(ruleDTO);
+        ruleService.register(ruleDTO, ruleName, false);
     }
 
     @Override
